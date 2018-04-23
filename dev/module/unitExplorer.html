@@ -1,0 +1,86 @@
+<!--
+
+Author: Charles Perin
+
+2018, Apr 20
+
+-->
+
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset='utf-8'>
+    <title>unitExplorer</title>
+
+    <script src="../lib/jquery-3.3.1.min.js"></script>
+    <script src="../lib/d3.v5.min.js"></script>
+    <script src="../lib/d3-selection-multi.v1.min.js"></script>
+    <script src="./Utils.js"></script>
+    <script src="./constants.js"></script>
+    <script src="./unitExplorer.js"></script>
+
+
+</head>
+
+<body>
+
+<div id="main">
+
+  <div id="unitExplorer">
+
+
+  </div>
+
+</div>
+
+
+<script>
+    /*
+     init function starting when the document is ready
+     */
+    $(document).ready(function(){
+
+        let unitExplorer = new UnitExplorer({
+          parent: "#unitExplorer",
+          unitCols: 2,
+          unitWidth: 550,
+          unitHeight: 150,
+          unitMargin: {top: 5, right: 5, bottom: 5, left: 5},
+          layout: {
+            left: {
+              width: 50,
+              margin: {top: 0, right: 10, bottom: 0, left: 0}
+            },
+            top: {
+              height: 15,
+              margin: {top: 0, right: 0, bottom: 5, left: 0}
+            },
+            bottom: {
+              height: 15,
+              margin: {top: 0, right: 0, bottom: 0, left: 0}
+            }
+          },
+          dataFilter: function(d){
+            if(d.date > parseYYYMMDD("1900-01-01") && d.date < parseYYYMMDD("2000-01-01")) return true;
+            console.log("Skipping entry with invalid date: ",d);
+            return false;
+          }
+        });
+
+        unitExplorer.loadDataFile("./../data/unitStatistics/2018-20-04/statistics_for_www_data_first10.json", function(){
+          console.log(unitExplorer.units);
+
+          unitExplorer.init("#unitExplorer");
+        });
+
+
+
+
+    });
+
+
+</script>
+
+
+</body>
+</html>
