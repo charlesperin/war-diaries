@@ -20,5 +20,4 @@
 
 
 ## TODO
-  - Free some space at the top of each unit to add its unit name
-  - Free some space on the left of each chart to add histograms of distributions of values on the left
+- a unitStatExplorer would be nice (to see the effect of applying some filter to the data)

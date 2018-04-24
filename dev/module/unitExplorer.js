@@ -18,6 +18,7 @@ class UnitExplorer{
     //unitFilter - a function to filter the units to display
     this._statistics = ["activity","domestic","person","place"];
     this._dataFilter = p.dataFilter || function(d){return true;};
+    this._unitFilter = p.unitFilter || function(d){return true;};
     this._layout = p.layout || {};
   }
 
@@ -86,8 +87,9 @@ class UnitExplorer{
   loadDataFile(file, callback){
     let $this = this;
     d3.json(file).then(function(data) {
-      console.log("data",data)
-      $this._units = data.map(function(d){
+      //console.log("data",data)
+      $this._units = data.filter($this._unitFilter)
+      .map(function(d){
         d.statistics = $this._statistics;
         d.dataFilter = $this._dataFilter;
         d.layout = $this._layout;

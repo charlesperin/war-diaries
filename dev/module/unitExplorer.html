@@ -43,7 +43,7 @@ Author: Charles Perin
         let unitExplorer = new UnitExplorer({
           parent: "#unitExplorer",
           unitCols: 2,
-          unitWidth: 550,
+          unitWidth: 1200,
           unitHeight: 150,
           unitMargin: {top: 5, right: 5, bottom: 5, left: 5},
           layout: {
@@ -60,6 +60,48 @@ Author: Charles Perin
               margin: {top: 0, right: 0, bottom: 0, left: 0}
             }
           },
+          unitFilter: function(d){
+
+            let activities = d3.sum(d.timeseries, t => t.activity_count);
+            let domestic = d3.sum(d.timeseries, t => t.domestic_count);
+            let places = d3.sum(d.timeseries, t => t.place_mentioned_count);
+            let persons = d3.sum(d.timeseries, t => t.person_count);
+
+            let activitiesMax = d3.max(d.timeseries, t => t.activity_count);
+            let domesticMax = d3.max(d.timeseries, t => t.domestic_count);
+            let placesMax = d3.max(d.timeseries, t => t.place_mentioned_count);
+            let personsMax = d3.max(d.timeseries, t => t.person_count);
+
+            //console.log(activities, domestic, places, persons);
+            if(activities < constants.unitFilter.minActivities){
+                //console.log(`Skip Unit ${d.unit} because less activities than ${minActivities}`);
+                return false;
+            }
+            if(domestic < constants.unitFilter.minDomestic){
+              return false;
+            }
+            if(places < constants.unitFilter.minPlaces){
+                return false;
+            }
+            if(persons < constants.unitFilter.minPersons){
+              return false;
+            }
+
+            if(activitiesMax > constants.unitFilter.maxActivitiesADay){
+              return false;
+            }
+            if(domesticMax > constants.unitFilter.maxDomesticADay){
+              return false;
+            }
+            if(placesMax > constants.unitFilter.maxPlacesADay){
+              return false;
+            }
+            if(personsMax > constants.unitFilter.maxPersonsADay){
+              return false;
+            }
+
+            return true;
+          },
           dataFilter: function(d){
             if(d.date > constants.parseYYYMMDD("1910-01-01") && d.date < constants.parseYYYMMDD("1920-01-01")) return true;
             console.log("Skipping entry with invalid date: ",d);
@@ -67,11 +109,8 @@ Author: Charles Perin
           }
         });
 
-        let fileName = "statistics_for_www_data_first10";
-        //let fileName = "statistics_for_www_data";
 
-
-        unitExplorer.loadDataFile(`./../data/unitStatistics/2018-20-04/${fileName}.json`, function(){
+        unitExplorer.loadDataFile(`./../data/unitStatistics/2018-20-04/${constants.fileName}.json`, function(){
           console.log(unitExplorer.units);
 
           unitExplorer.init("#unitExplorer");
