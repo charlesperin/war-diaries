@@ -103,13 +103,6 @@ class UnitExplorer{
   get units(){
     return this._units;
   }
-
-  /*
-    Set the list of units
-  */
-  set units(units){
-    this._units = units;
-  }
 }
 
 
@@ -119,7 +112,7 @@ class Unit{
   constructor(p){
     this._name = p.unit;
     this._statistics = p.statistics;
-    p.timeseries.forEach(d => d.date = parseYYYMMDD(d.date));
+    p.timeseries.forEach(d => d.date = constants.parseYYYMMDD(d.date));
     this._timeSeries = p.timeseries.filter(p.dataFilter);
 
     this._dateMin = d3.min(this._timeSeries, d => d.date);
@@ -127,10 +120,10 @@ class Unit{
     this._layout = p.layout;
 
     this._statSeries = p.statistics.map(d => new UnitStatistic({statistic: d, unit: this}));
-    //TODO - this._statHistograms = ...
   }
 
   init(p){
+    var $this = this;
 
     this._chart = p.parent.append("g").attrs({
       class: "unit"
@@ -155,12 +148,21 @@ class Unit{
     let bottom = this._chart.append("g").attr("class", "bottom");
     bottom.append("text").text("here the years").attr("dy","1em");//TODO - replace with time axis
 
-    this._statSeries.forEach(stat => stat.init({
-      parent: this._chart,
-      timeDomain: p.domains.time,
-      statDomain: p.domains[stat.statistic]
-    }));
 
+
+    this._statSeries.forEach(function(stat){
+      var histoTmpScale = d3.scaleLinear().domain(p.domains[stat.statistic].map(d => d+1)).nice(constants.histogram.nbBins);
+
+      stat.init({
+        parent: $this._chart,
+        timeDomainLinechart: p.domains.time,
+        statDomainLinechart: p.domains[stat.statistic],
+        histogramParam: d3.histogram()
+          .value(function(d) { return $this.getTimePointStat(d,stat.statistic); })
+          .domain(histoTmpScale.domain())
+          .thresholds(histoTmpScale.ticks(constants.histogram.nbBins))
+      });
+    });
   }
 
   update(p){
@@ -184,10 +186,13 @@ class Unit{
       this._height - this._layout.bottom.margin.top - this._layout.bottom.margin.bottom - this._layout.bottom.height));
 
     //update each statistic series
-    this._statSeries.forEach( (stat, s) => stat.update(this.getChartDimensions(s)));
+    this._statSeries.forEach( (stat, s) => stat.update({
+      linechartDimensions: this.getLineChartDimensions(s),
+      histogramDimensions: this.gehistogramDimensions(s),
+    }));
   }
 
-  getChartDimensions(i){
+  getLineChartDimensions(i){
     let x = this._layout.left.width + this._layout.left.margin.left + this._layout.left.margin.right,
         width = this._width - x,
         y0 = this._layout.top.height + this._layout.top.margin.top + this._layout.top.margin.bottom,
@@ -195,6 +200,16 @@ class Unit{
         height = (y1 - y0) / this._statistics.length,
         y = y0 + i * height;
 
+    return {x: x, y: y, width: width, height: height};
+  }
+
+  gehistogramDimensions(i){
+    let x = this._layout.left.margin.left,
+        width = this._layout.left.width - this._layout.left.margin.left - this._layout.left.margin.right,
+        y0 = this._layout.top.height + this._layout.top.margin.top + this._layout.top.margin.bottom,
+        y1 = this._height - this._layout.bottom.height + this._layout.bottom.margin.top + this._layout.bottom.margin.bottom,
+        height = (y1 - y0) / this._statistics.length,
+        y = y0 + i * height;
     return {x: x, y: y, width: width, height: height};
   }
 
@@ -224,54 +239,22 @@ class Unit{
     }
   }
 
-
-  /*
-    Return the name of the unit
-  */
   get name(){
     return this._name;
   }
 
-  /*
-    Set the name of the unit
-  */
-  set name(name){
-    this._name = name;
-  }
-
-  /*
-    Return the first date associated to the unit
-  */
   get dateMin(){
     return this._dateMin;
   }
 
-  /*
-    Set the first date associated to the unit
-  */
-  set dateMin(dateMin){
-    this._dateMin = dateMin;
-  }
-
-  /*
-    Return the last date associated to the unit
-  */
   get dateMax(){
     return this._dateMax;
-  }
-
-  /*
-    Set the last date associated to the unit
-  */
-  set dateMax(dateMax){
-    this._dateMax = dateMax;
   }
 
   get timeSeries(){
     return this._timeSeries;
   }
 }
-
 
 
 /*
@@ -284,27 +267,34 @@ class UnitStatistic{
     var $this = this;
 
     this.line = d3.line()
-      .x(function(d) { return $this.getTimePointX(d); })
-      .y(function(d) { return $this.getTimePointY(d, $this._statistic) });
+      .x(function(d) { return $this.getLinechartTimePointX(d); })
+      .y(function(d) { return $this.getLinechartTimePointY(d, $this._statistic) });
 
-    this._bisectDate = d3.bisector(function(d) { return d.date; }).left;
+    this._bisectDateLinechart = d3.bisector(function(d) { return d.date; }).left;
   }
 
   init(p){
 
-    var $this = this;
+    let $this = this;
 
-    this._xScale = d3.scaleTime().domain(p.timeDomain);
-    this._yScale = d3.scaleLinear().domain(p.statDomain);
+    this._xScaleLinechart = d3.scaleTime().domain(p.timeDomainLinechart);
+    this._yScaleLinechart = d3.scaleLinear().domain(p.statDomainLinechart);
+
+    this._histogramParam = p.histogramParam;
+    let bins = this._histogramParam(this._unit._timeSeries);
+    this._xScaleHistogram = d3.scaleLinear().domain([0, constants.histogram.tmpMaxValue]);//TODO - max value over all histogram bins
+    this._yScaleHistogram = d3.scaleLinear().domain([0, bins.length]);
+
+    //console.log("bin widths: " + bins.map(b => "[" + b.x1 + ", " + b.x0 + "]" ));
 
     this._chart = p.parent.append("g").attrs({
-      class: "statSeries",
+      class: "statSeries"
     });
 
     this._chart.append("path").attrs({
       class: "statLine",
       fill: "none",
-      stroke: "steelblue",
+      stroke: constants.color.statistics[this._statistic],
       "stroke-linejoin": "round",
       "stroke-linecap": "round",
       "stroke-width": .5
@@ -347,56 +337,96 @@ class UnitStatistic{
         .on("mousemove", mousemove);
 
     function mousemove() {
-        let mouseDate =  $this._xScale.invert(d3.mouse(this)[0]),
-            i = $this._bisectDate($this._unit.timeSeries, mouseDate, 1),
+        let mouseDate =  $this._xScaleLinechart.invert(d3.mouse(this)[0]),
+            i = $this._bisectDateLinechart($this._unit.timeSeries, mouseDate, 1),
             d0 = $this._unit.timeSeries[i - 1],
             d1 = $this._unit.timeSeries[i];
         if(d0 == undefined || d1 == undefined) return;
         let closestData = mouseDate - d0.date > d1.date - mouseDate ? d1 : d0,
-            x = $this.getTimePointX(closestData),
-            y = $this.getTimePointY(closestData, $this._statistic),
+            x = $this.getLinechartTimePointX(closestData),
+            y = $this.getLinechartTimePointY(closestData, $this._statistic),
             value = $this._unit.getTimePointStat(closestData, $this._statistic);
-        let shortDate = formatShortDate(closestData.date);
+        let shortDate = constants.formatShortDate(closestData.date);
 
         $this._focus.attr("transform", d3.translate(x, y));
         $this._focus.select("text")
           .text(`${value} (${shortDate})`)
           .attrs({
             dx: function(){
-                return (x > $this._width - 150) ? -5 : 5;
+                return (x > $this._widthLinechart - 150) ? -5 : 5;
             },
             dy: function(){
                 return (y < 20) ? ".9em" : "-.3em";
             }
           }).styles({
             "text-anchor": function(){
-                return (x > $this._width - 150) ? "end": "start";
+                return (x > $this._widthLinechart - 150) ? "end": "start";
             }
           })
-        $this._focus.select(".x-hover-line").attr("y2", $this._height - y);
-        $this._focus.select(".y-hover-line").attr("x2", $this._width - x);
+        $this._focus.select(".x-hover-line").attr("y2", $this._heightLinechart - y);
+        $this._focus.select(".y-hover-line").attr("x2", $this._widthLinechart - x);
       }
+
+      this._histogram = p.parent.append("g").attrs({
+        class: "histogram"
+      });
+      let histobars = this._histogram.selectAll(".histoBar").data(bins).enter().append("g").attr("class","histoBar").append("rect").styles({
+        stroke: "none",
+        fill: constants.color.statistics[this._statistic]
+      });
+
   }
 
-  update(p){
-    if(p.width != undefined) {
-      this._width = p.width;
-      this._xScale.rangeRound([0, this._width]);
-    }
-    if(p.height != undefined) {
-      this._height = p.height;
-      this._yScale.rangeRound([this._height, 0]);
-    }
-    if(p.x != undefined) this._x = p.x;
-    if(p.y != undefined) this._y = p.y;
 
+
+  update(p){
+    var $this = this;
+    if(p.linechartDimensions.width != undefined) {
+      this._widthLinechart = p.linechartDimensions.width;
+      this._xScaleLinechart.rangeRound([0, this._widthLinechart]);
+    }
+    if(p.linechartDimensions.height != undefined) {
+      this._heightLinechart = p.linechartDimensions.height;
+      this._yScaleLinechart.rangeRound([this._heightLinechart, 0]);
+    }
+    if(p.linechartDimensions.x != undefined) this._xLinechart = p.linechartDimensions.x;
+    if(p.linechartDimensions.y != undefined) this._yLinechart = p.linechartDimensions.y;
+
+    if(p.histogramDimensions.width != undefined){
+      this._widthHistogram = p.histogramDimensions.width;
+      this._xScaleHistogram.rangeRound([0, this._widthHistogram]);
+    }
+    if(p.histogramDimensions.height != undefined){
+      this._heightHistogram = p.histogramDimensions.height;
+      this._yScaleHistogram.rangeRound([0, this._heightHistogram]);
+    }
+    if(p.histogramDimensions.x != undefined) this._xHistogram = p.histogramDimensions.x;
+    if(p.histogramDimensions.y != undefined) this._yHistogram = p.histogramDimensions.y;
+
+    var histobarHeight = $this._yScaleHistogram(1) - $this._yScaleHistogram(0);
     this._chart.attrs({
-      transform: d3.translate(this._x,this._y)
+      transform: d3.translate(this._xLinechart,this._yLinechart)
+    });
+    this._histogram.attrs({
+      transform: d3.translate(this._xHistogram,this._yHistogram)
+    });
+    let histoBars = this._histogram.selectAll(".histoBar").attrs({
+      transform: function(d,i){
+        return d3.translate(
+          $this._widthHistogram -  $this._xScaleHistogram(d.length),
+          $this._heightHistogram - histobarHeight - $this._yScaleHistogram(i)
+        );
+      }
+    });
+    histoBars.select("rect").attrs({
+      width: d => this._xScaleHistogram(d.length),
+      height: histobarHeight
     });
 
+
     this._chart.select(".overlay").attrs({
-      width: this._width,
-      height: this._height
+      width: this._widthLinechart,
+      height: this._heightLinechart
     });
 
     this._chart.select(".statLine")
@@ -404,7 +434,7 @@ class UnitStatistic{
       .attr("d", this.line);
 
     this._focus.select(".x-hover-line").attrs({
-      y2: this._height
+      y2: this._heightLinechart
     });
     this._focus.select(".y-hover-line").attrs({
       x2: 0
@@ -412,21 +442,89 @@ class UnitStatistic{
 
   }
 
-  getTimePointX(timePoint){
-    return this._xScale(timePoint.date);
+  getLinechartTimePointX(timePoint){
+    return this._xScaleLinechart(timePoint.date);
   }
 
-  getTimePointY(timePoint, statistic){
-    return this._yScale(this._unit.getTimePointStat(timePoint,statistic));
+  getLinechartTimePointY(timePoint, statistic){
+    return this._yScaleLinechart(this._unit.getTimePointStat(timePoint,statistic));
   }
-
-
-
-
 
   get statistic(){
     return this._statistic;
   }
 
+}
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/*
+Probably a good idea to create these generic classes instead
+*/
+
+
+class Chart{
+
+  constructor(p){
+    this._width = p.width || 300;
+    this._height = p.height || 100;
+    this._orientation = p.orientation || Chart.HORIZONTAL;
+  }
+
+  init(p){
+
+  }
+
+  update(p){
+
+  }
+
+  static get HORIZONTAL() {
+    return 0;
+  }
+  static get VERTICAL() {
+    return 1;
+  }
+}
+
+class LineChart extends Chart{
+  constructor(p){
+    super(p);
+  }
+
+  init(p){
+
+  }
+
+  update(p){
+
+  }
+
+
+}
+
+class Histogram extends Chart{
+  constructor(p){
+    super(p);
+  }
 }
