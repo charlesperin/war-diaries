@@ -13,6 +13,10 @@ const constants = {
       place: "#e78ac3"
     }
   },
+  unitDimensions: {
+    width: 600,
+    height: 200
+  },
   histogram: {
     nbBins: 6,
     tmpMaxValue: 2000
