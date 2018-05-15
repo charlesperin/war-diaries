@@ -148,7 +148,7 @@ class Unit{
     }).text(this._name);
 
     let bottom = this._chart.append("g").attr("class", "bottom");
-    bottom.append("text").text("here the years").attr("dy","1em");//TODO - replace with time axis
+    //bottom.append("text").text("here the years").attr("dy","1em");//TODO - replace with time axis
 
 
 

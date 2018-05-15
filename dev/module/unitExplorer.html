@@ -62,6 +62,7 @@ Author: Charles Perin
           },
           unitFilter: function(d){
 
+
             let activities = d3.sum(d.timeseries, t => t.activity_count);
             let domestic = d3.sum(d.timeseries, t => t.domestic_count);
             let places = d3.sum(d.timeseries, t => t.place_mentioned_count);
