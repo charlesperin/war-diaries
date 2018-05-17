@@ -18,11 +18,15 @@ class UnitExplorer{
     //unitFilter - a function to filter the units to display
     this._statistics = ["activity","domestic","person","place"];
     this._dataFilter = p.dataFilter || function(d){return true;};
-    this._unitFilter = p.unitFilter || function(d){return true;};
     this._layout = p.layout || {};
+    this._unitFilters = p.unitFilters || [];
   }
 
   init(parent){
+
+    d3.select(parent).append("div").attrs({
+      id: "unitExplorerControls"
+    });
 
     this._svg = d3.select(parent).append("svg").attrs({
       id: "unitExplorerSVG"
@@ -36,12 +40,99 @@ class UnitExplorer{
     };
     this._statistics.forEach( s => this._domains[s] = [
         0,
-        d3.max(this._units, unit => unit.getMaxValue(s))
+        Math.min(50, d3.max(this._units, unit => unit.getMaxValue(s)))
       ]
     );
 
+    console.log(this._domains)
+
+    this.initControls();
     this.initUnits();
     this.update();
+  }
+
+  initControls(){
+
+    var $this = this;
+
+    let overallDiv = d3.select("#unitExplorerControls").append("div").styles({
+      "border-bottom": "1px solid lightgray",
+      margin: "5px 0px 15px 0px"
+    });
+    overallDiv.append("p").html("Minimum Number Overall:")
+
+    let perDayDiv = d3.select("#unitExplorerControls").append("div").styles({
+      "border-bottom": "1px solid lightgray",
+      margin: "5px 0px 15px 0px"
+    });
+    perDayDiv.append("p").html("Maximum Number at a Given Date:")
+
+    this._unitFilters.forEach(function(f){
+
+      f.value = f.default;
+
+      let name = "",
+          theDiv = undefined,
+          sliderRange = "";
+
+      if(f.type === "minTotal"){
+        name += f.name+": ";
+        theDiv = overallDiv;
+        sliderRange = "max";
+      }
+      else if(f.type === "maxDay"){
+        name += f.name+": ";
+        theDiv = perDayDiv;
+        sliderRange = "min";
+      }
+
+      let divID = "unitControl-"+f.key+"-"+f.type;
+      let controlDiv = theDiv.append("div").attr("id", divID).style("margin","5px");
+
+      controlDiv.append("label").html(name);
+      controlDiv.append("label").attr("class","amount").html(f.default).style("color","orange").style("font-weight","600");
+      controlDiv.append("div").attr("class","slider").styles({
+        width: "300px",
+        display: "inline-block",
+        position: "absolute",
+        left: "500px"
+      });
+
+      $( "#" + divID + " .slider").slider({
+        range: sliderRange,
+        min: f.min,
+        max: f.max,
+        value: f.default,
+        slide: function( event, ui ) {
+          $( "#"+divID + " .amount" ).html( ui.value );
+          f.value = ui.value;
+          $this.update();
+        }
+      });
+    //  $( "#" + divID + ".amount" ).html( $( "#" + divID + ".slider" ).slider( "value" ) );
+      d3.select("#" + divID ).attr("width","200px");
+    });
+
+    //the legend
+    var legend = d3.select("#unitExplorerControls").append("div");
+    var legendData = [];
+    for(var v in constants.color.statistics){
+      legendData.push({name: v, color: constants.color.statistics[v]})
+    }
+
+    var legendItem = legend.selectAll(".legendItem").data(legendData).enter().append("div").attr("class","legendItem").style("display","inline-block");
+    legendItem.append("div").styles({
+      width: "20px",
+      height: "20px",
+      display: "inline-block",
+      "background-color": d => d.color,
+      "margin": "0px 5px"
+    });
+    legendItem.append("label").style("display","inline-block").style("margin-right", "5px").html(d => d.name);
+    var nbUnits = legend.append("div");
+    nbUnits.append("label").html("Number of units shown: ");
+    nbUnits.append("label").attr("id", "label-nbUnitsShown").html("");
+    nbUnits.append("label").html(" / "+this._units.length);
   }
 
   initUnits(){
@@ -51,25 +142,37 @@ class UnitExplorer{
     }));
   }
 
+  getVisibleUnits(){
+    return this._units.filter(unit => unit.isVisible());
+  }
+
   update(){
+
+    var $this = this;
 
     //update the main SVG dimensions based on number of units to show
     let w = (this._unitWidth + this._unitMargin.left + this._unitMargin.right) * this._unitCols;
-    let h = (this._unitHeight + this._unitMargin.top + this._unitMargin.bottom) * Math.floor(this._units.length / this._unitCols);
+    let h = (this._unitHeight + this._unitMargin.top + this._unitMargin.bottom) * Math.floor($this.getVisibleUnits().length / this._unitCols);
 
     this._svg.attrs({
       width: w,
       height: h
     });
 
-    //update each unit
+    d3.select("#label-nbUnitsShown").html($this.getVisibleUnits().length);
+
     this._units.forEach( (unit, u) => unit.update({
-      x: this.xUnitFromIndex(u),
-      y: this.yUnitFromIndex(u),
+      x: this.xUnitFromIndex($this.getVisibleUnits().filter(function(unit2,u2){return u2 < $this.getVisibleUnits().indexOf(unit)}).length),
+      y: this.yUnitFromIndex($this.getVisibleUnits().filter(function(unit2,u2){return u2 <  $this.getVisibleUnits().indexOf(unit)}).length),
       width: this._unitWidth,
       height: this._unitHeight,
-      layout: this._layout
+      layout: this._layout,
+      filters: $this._unitFilters
     }));
+  }
+
+  getFilterObject(){
+
   }
 
   xUnitFromIndex(i){
@@ -88,14 +191,33 @@ class UnitExplorer{
     let $this = this;
     d3.json(file).then(function(data) {
       //console.log("data",data)
-      $this._units = data.filter($this._unitFilter)
-      .map(function(d){
-        d.statistics = $this._statistics;
-        d.dataFilter = $this._dataFilter;
-        d.layout = $this._layout;
-        return new Unit(d);
-      });
+
+      $this.createControls(data);
+
+      $this._units = data.map(function(d){
+          d.statistics = $this._statistics;
+          d.dataFilter = $this._dataFilter;
+          d.layout = $this._layout;
+          return new Unit(d);
+        });
+
       callback.call();
+
+    });
+  }
+
+  createControls(data){
+    this._unitFilters.forEach(function(f){
+      f.min = 0;
+      switch(f.type){
+        case "minTotal":
+          f.max = Math.max(f.default, d3.max(data, unit => d3.sum(unit.timeseries, series => series[f.key])));
+        break;
+        case "maxDay":
+          f.max = Math.max(f.default, d3.max(data, unit => d3.max(unit.timeseries, series => series[f.key])));
+        break;
+        default: console.error("Unknown type",f.type);
+      }
     });
   }
 
@@ -108,11 +230,10 @@ class UnitExplorer{
 }
 
 
-
-
 class Unit{
   constructor(p){
     this._name = p.unit;
+    this._visible = true;
     this._statistics = p.statistics;
     p.timeseries.forEach(d => d.date = constants.parseYYYMMDD(d.date));
     this._timeSeries = p.timeseries.filter(p.dataFilter);
@@ -122,6 +243,25 @@ class Unit{
     this._layout = p.layout;
 
     this._statSeries = p.statistics.map(d => new UnitStatistic({statistic: d, unit: this}));
+
+    this._metaData = {
+      total: {
+        activities: d3.sum(this._timeSeries, t => t.activity_count),
+        domestic: d3.sum(this._timeSeries, t => t.domestic_count),
+        places: d3.sum(this._timeSeries, t => t.place_mentioned_count),
+        persons: d3.sum(this._timeSeries, t => t.person_count)
+      },
+      dayMax: {
+        activities: d3.max(this._timeSeries, t => t.activity_count),
+        domestic: d3.max(this._timeSeries, t => t.domestic_count),
+        places: d3.max(this._timeSeries, t => t.place_mentioned_count),
+        persons: d3.max(this._timeSeries, t => t.person_count)
+      }
+    }
+  }
+
+  isVisible(){
+    return this._visible;
   }
 
   init(p){
@@ -169,10 +309,16 @@ class Unit{
 
   update(p){
 
+    var $this = this;
+
     if(p.width != undefined) this._width = p.width;
     if(p.height != undefined) this._height = p.height;
     if(p.x != undefined) this._x = p.x;
     if(p.y != undefined) this._y = p.y;
+
+    if(p.filters){
+      this.updateVisibility(p.filters);
+    }
 
     this._chart.attrs({
       transform: d3.translate(this._x,this._y)
@@ -181,17 +327,51 @@ class Unit{
     this._chart.select(".background").attrs({
       width: this._width,
       height: this._height
+    }).style("fill", function(){
+      if($this._name === "3 DIVISION: 8 Battalion King's Own Royal Lancaster Regiment") return "#FFEEEE";
+      return "white";
     });
 
     this._chart.select(".bottom").attr("transform", d3.translate(
       this._layout.left.margin.left + this._layout.left.margin.right + this._layout.left.width + this._layout.bottom.margin.left,
       this._height - this._layout.bottom.margin.top - this._layout.bottom.margin.bottom - this._layout.bottom.height));
 
+    this._chart.style("visibility", this.isVisible() ? "visible" : "hidden");
+
     //update each statistic series
     this._statSeries.forEach( (stat, s) => stat.update({
       linechartDimensions: this.getLineChartDimensions(s),
       histogramDimensions: this.gehistogramDimensions(s),
     }));
+  }
+
+  updateVisibility(filters){
+    this._visible = true;
+    if(this._metaData.total.activities < filters.filter(f => f.key === "activity_count" && f.type === "minTotal")[0].value){
+        this._visible = false;
+    }
+    if(this._metaData.total.domestic < filters.filter(f => f.key === "domestic_count" && f.type === "minTotal")[0].value){
+      this._visible = false;
+    }
+    if(this._metaData.total.places < filters.filter(f => f.key === "place_mentioned_count" && f.type === "minTotal")[0].value){
+        this._visible = false;
+    }
+    if(this._metaData.total.persons < filters.filter(f => f.key === "person_count" && f.type === "minTotal")[0].value){
+      this._visible = false;
+    }
+
+    if(this._metaData.dayMax.activities > filters.filter(f => f.key === "activity_count" && f.type === "maxDay")[0].value){
+      this._visible = false;
+    }
+    if(this._metaData.dayMax.domestic > filters.filter(f => f.key === "domestic_count" && f.type === "maxDay")[0].value){
+      this._visible = false;
+    }
+    if(this._metaData.dayMax.places > filters.filter(f => f.key === "place_mentioned_count" && f.type === "maxDay")[0].value){
+      this._visible = false;
+    }
+    if(this._metaData.dayMax.persons > filters.filter(f => f.key === "person_count" && f.type === "maxDay")[0].value){
+      this._visible = false;
+    }
   }
 
   getLineChartDimensions(i){
@@ -280,7 +460,7 @@ class UnitStatistic{
     let $this = this;
 
     this._xScaleLinechart = d3.scaleTime().domain(p.timeDomainLinechart);
-    this._yScaleLinechart = d3.scaleLinear().domain(p.statDomainLinechart);
+    this._yScaleLinechart = d3.scaleLinear().domain(p.statDomainLinechart).clamp(true);
 
     this._histogramParam = p.histogramParam;
     let bins = this._histogramParam(this._unit._timeSeries);
@@ -456,77 +636,4 @@ class UnitStatistic{
     return this._statistic;
   }
 
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-/*
-Probably a good idea to create these generic classes instead
-*/
-
-
-class Chart{
-
-  constructor(p){
-    this._width = p.width || 300;
-    this._height = p.height || 100;
-    this._orientation = p.orientation || Chart.HORIZONTAL;
-  }
-
-  init(p){
-
-  }
-
-  update(p){
-
-  }
-
-  static get HORIZONTAL() {
-    return 0;
-  }
-  static get VERTICAL() {
-    return 1;
-  }
-}
-
-class LineChart extends Chart{
-  constructor(p){
-    super(p);
-  }
-
-  init(p){
-
-  }
-
-  update(p){
-
-  }
-
-
-}
-
-class Histogram extends Chart{
-  constructor(p){
-    super(p);
-  }
 }
